@@ -1,0 +1,212 @@
+---
+title: "Population genetic differences between warblers"
+author: "Fiona Moss"
+output:
+  html_document: default
+  html_notebook: default
+  word_document: default
+---
+
+###Summary:
+
+According to my analysis, mean value of Fst is <b>0.01523262</b> and it is approximately three times the calculations presented in the research paper (<b>0.0045</b>). The uncertainty in the analysis has been quantified by considering the <i>95% credible interval</i> for the allele frequency which states that the true parameter lies in this interval with 95% confidence.
+
+Since the Fst is an estimate of similarity not just within a species but also among various species, a higher Fst in the analysis indicates more difference between the Golden-wing warblers (GWWA) and the Blue-wing warblers (BWWA).
+
+Finite sample size affects the estimate of p. Therefore, we draw random values from the model and propagate the uncertainty to Fst to quantify our uncertainty. The uncertainty in Fst reflects uncertainty in underlying allele frequencies. 
+
+In my analysis, I used the Bayesian Inference on a Binomial distribution which resulted in a Beta distribution. Then estimates of allele frequencies were transformed to Fst for each locus to quantify uncertainty. 
+
+The six regions of interest according to the research paper were plotted and their genomic regions around the highest Fst was plotted along with our findings of the genomic regions around the highest Fst. None of these regions matched indicating a significant difference between our estimates and the estimates reported in the research papers.
+
+###Approach of the analysis:
+1. Determining the appropriate distribution (Beta Distribution in our case) to model the allele data.
+2. Finding the Bayes Estimate for the mean value.
+3. Propagation of uncertainty to Fst to quantify uncertainty by drawing random samples from the model.
+4. Comparison of this result with the result of the research paper.
+
+###Analysis of Data:
+
+The data for this study is present at the following location:
+```{r}
+#The file where the data related to warblers is located
+warblers <- read.csv("order_warblers.csv")
+#The file where the data related to genotypes is located
+geno <- read.table("ddrad_geno.txt", stringsAsFactors = F)
+#Loci in the format of chromosome:base pair location
+loci <- geno[, 1]
+#Genotype 
+geno <- geno[, -1]
+```
+
+To analyze the above data <b>Bayesian Analysis</b> is used since the data consists of discrete events (determining the presence of alleles) over discrete trails (discrete time space). Since we need to find the presence of a particular allele (reference allele) in the discrete trials, the data follows a <b>Binomial Distribution</b>.
+
+Bayesian methods provide the posterior probability since they are used to provide the probability density of model parameters given the data. The probability distribution of the allele frequency will describe all information about the parameters and our uncertainty about the point estimates. 
+
+The formula for Bayes theorem for posterior probability is given by: <br>
+$$P(p|allele \hspace{0.2cm} data) = \dfrac{P(allele \hspace{0.2cm} data|p).P(p)}{P(allele \hspace{0.2cm} data)}$$
+
+Here $P(p|data)$ is the posterior, $P(data|p)$ is the likelihood, $P(p)$ is the prior probability of p and $P(data)$ is the normalizing constant.
+
+When a Bayesian model is applied to a binomial distribution (likelihood multiplied by prior probability), it results in a beta-binomial distribution. Since we do not know how the prior is distributed, a uniform Beta distribution was used to get accurate analytical results. The normalizing constant is not needed here mathematically. The desirable prior for a binomial is a beta distribution, because of their mathematical relationship (beta is conjugate prior to binomial). Therefore, Beta distribution was used to represent the allele frequencies.
+
+To calculate the mean of the allele frequency, the count and size of reference alleles have been taken into consideration.
+
+
+```{r}
+# Count of reference alleles
+x <- aggregate(t(geno),by = list(warblers$phenotype), sum, na.rm = T)
+# Naming the rows as BRWA, BWWA, GWWA
+row.names(x) <- x[, 1]
+x <- x[, -1]
+# Size of reference alleles
+n <- aggregate(t(geno), by = list(warblers$phenotype), function(x)sum(!is.na(x)))
+# Naming the rows as BRWA, BWWA, GWWA
+row.names(n) <- n[, 1]
+n <- n[, -1]
+# Size multiplied by number of copies of alleles (Total number of trials)
+n <- 2 * n
+# Bayesian Estimate of Beta-Binomial Distribution
+alpha <- as.matrix(x+1)
+beta <- as.matrix(n-x+1)
+# Mean/estimate of a Beta Distribution (Bayesian point estimate)
+p.est.bayes <- alpha/(alpha+beta)
+# Summary of allele frequency for BWWA and GWWA
+summary(t(p.est.bayes[c(2,3),]))
+```
+
+We need to transform estimates of allele frequencies to Fst for each locus.
+
+```{r}
+# Method for finding Hudson Fst
+hudsonFst <- function(p1=NA, p2=NA, locusspecific = F){
+  p1.comp <- 1 - p1
+  p2.comp <- 1 - p2
+  # H_w for numerator : p1 * p1.comp + p2 * p2.comp
+  # H_b for denominator: p1 * p2.comp + p2 * p1.comp
+  # 1 - numerator/denominator # Hudsons's Fst
+  if(locusspecific == T){
+  # return fst for each locus
+      return(1 - (p1 * p1.comp + p2 * p2.comp)/(p1 * p2.comp + p2 * p1.comp)) 
+  }
+  # return mean fst for set of loci
+  mean(1 - (p1 * p1.comp + p2 * p2.comp)/(p1 * p2.comp + p2 * p1.comp)) 
+}
+```
+
+Since we have to determine the genomic difference between populations of Golden-wing and Blue-wing warblers, we use Fst which provides us with the similarity among various species. 
+
+```{r}
+# Bayesian Estimate of Fst
+fst.p.est.bayes <- hudsonFst(p.est.bayes[2,], p.est.bayes[3,], locusspecific = T)
+summary(fst.p.est.bayes)
+mean(fst.p.est.bayes)
+```
+
+We found the mean to be <b>`r mean(fst.p.est.bayes)`</b> which is three times higher than the findings of the authors.
+
+We need to take the loci apart and split by loci into chromosome location and base pair location.
+
+```{r}
+# Splitting the loci into scaffold and position (bp)
+position <- matrix(unlist(strsplit(loci, ":")),ncol = 2, byrow = T)
+position <- data.frame(scaffold = as.character(position[,1]),bp = position[,2], stringsAsFactors = F)
+```
+
+Generally, allele frequency changes due to the following reasons: <br>
+1. Natural Selection, Mutation, Migration/gene-flow <br>
+2. There is variability in the evolution rate among loci <br>
+
+
+Since finite sample size affects the estimate of p, random values were drawn from the model and the uncertainty was propagated to Fst to quantify our uncertainty.
+
+```{r}
+### use beta distribution of allele frequencies at a locus
+### to propogate uncertainty to estimate of Fst at each locus
+### by drawing random samples from each species' beta distribution
+sim.p.quantiles <- matrix(0, nrow = length(loci), ncol = 2)
+for(locus in 1:length(loci)){
+  sim.p.bwwa <- rbeta(1000, alpha[2, locus], beta[2, locus])
+  sim.p.gwwa <- rbeta(1000, alpha[3, locus], beta[3, locus])
+  sim.p.quantiles[locus,] <- quantile(hudsonFst(sim.p.bwwa, sim.p.gwwa, locusspecific =                               T), probs = c(0.025, 0.975))
+}
+
+# summary of the first quanitile
+summary(sim.p.quantiles[, 1])
+# summary of the third quantile
+summary(sim.p.quantiles[, 2])
+
+# Graph to represent the uncertainity of Fst in each locus
+X <- sim.p.quantiles
+h <- hist(X, breaks = 20, col = "grey", xlab = "Fst", main = "Uncertainity of Fst in each locus")
+# Sequence of numbers between min(sim.p.quantiles) and max(sim.p.quantiles)
+xfit <- seq(min(X), max(X), length = 40) 
+# Normal distribution of the min and max values
+yfit <- dnorm(xfit, mean = mean(X),sd = sd(X)) 
+yfit <- yfit * diff(h$mids[1:2]) * length(X) 
+lines(xfit, yfit, col = "green", lwd = 2)
+# Mean as per the research paper
+abline(v = 0.0045, col = "blue")
+# Mean as per our analysis
+abline(v = mean(fst.p.est.bayes), col = "red")
+# Mean of the first quantile
+abline(v = mean(sim.p.quantiles[, 1]))
+# Mean of the third quantile
+abline(v = mean(sim.p.quantiles[, 2]))
+# Text above the first quantile
+mtext(text = "2.5%", side = 3, at = mean(sim.p.quantiles[, 1]), las = 1, cex = 0.6)
+# Text above the third quantile
+mtext(text = "97.5%", side = 3, at = mean(sim.p.quantiles[, 2]), las = 1, cex = 0.6)
+```
+
+The above graph represents the Uncertainty of Fst in every locus. The histogram represents the quantiles of the random samples drawn. The blue line in the above graph represents the mean estimate according to the research paper and the red line represents the mean Bayes estimate. The green curve represents the density curve of the quanitles. Both the means are quite far apart from each other. Therefore, this graph is pertinent to quantify the uncertainty of our model. 
+
+Plotting the six regions of interest as per the research paper we get the following graphs:
+
+```{r}
+# Code to plot the six regions of interest of the research paper.
+# Binding the position with the bayes estimate
+fst_pos <- cbind(position, fst.p.est.bayes)
+par(mfrow = c(2,1))
+# selecting regions of interest as per the research paper
+for(i in c("Z", "4", "4A", "20", "24", "25")){
+  # plot the Fst of the above regions of interest
+  plot(as.numeric(position$bp[position$scaffold == i]), 
+     fst.p.est.bayes[position$scaffold == i], 
+     ylim = c(0,0.5), main = i, xlab = "position (bp)",
+     ylab = "Fst")
+  # Finding the position of the maximum bayesian estimate 
+  segments(as.numeric(position$bp[position$scaffold == i]), sim.p.quantiles[position$scaffold == i, 1],
+           as.numeric(position$bp[position$scaffold == i]), sim.p.quantiles[position$scaffold == i, 2])
+  # Plotting the shaded area (region around maximum estimate) of the reasearch paper
+  if (i == "4") {
+    rect(xleft = 2300000, xright = 2700000, ybottom = 0, ytop = 0.5, density = 20, col = "blue")
+  }
+  else if (i == "4A") {
+    rect(xleft = 350000, xright = 500000, ybottom = 0, ytop = 0.5, density = 20, col = "blue")
+  }
+  else if (i == "20") {
+    rect(xleft = 300000, xright = 450000, ybottom = 0, ytop = 0.5, density = 20, col = "blue")
+  }
+  else if (i == "24") {
+    rect(xleft = 10000, xright = 80000, ybottom = 0, ytop = 0.5, density = 20, col = "blue")
+  }
+  # Finding the maximum bayes estimate
+  i_fst <- fst_pos[position$scaffold == i,]
+  max_fst <- i_fst[i_fst$fst.p.est.bayes == max(i_fst$fst.p.est.bayes),]
+  # Plotting the region around the maximum bayes estimate
+  rect(xleft = as.numeric(max_fst$bp)-200000, xright = as.numeric(max_fst$bp)+200000, ybottom = 0, ytop = 0.5, density = 20, col = "red")
+}
+```
+
+The red shaded area represents the genomic region around the highest Fst according to our analysis and the blue shaded area represents the genomic region around the highest Fst calculated in the research paper. Hence, it is clear that both the regions do not match indicating a major difference between our estimates and the research paper's estimates.
+
+### Extent of differences between our study and the study presented in the research paper:
+
+In the research paper, 10 male golden-wing and blue-wing warblers were considered to find the population genetic differentiation. But in our study, a total of 112 golden-wing and 29 blue-wing warblers were examined. In addition, the research paper consisted of 11.4 million loci. In our study, however, we selected a total of 16103 loci for analysis. 
+Since the data we have used consists of many more warblers than the data used for the research paper, we have a higher confidence in our estimates since the number of loci is lesser.
+
+In the research paper, only the measure of Fst was given. Information about the analysis was not included. Whereas in our study, we have quantified our uncertainty and built a model to sample the data. Therefore, there is a higher possibility of our results being more accurate than the results of the research paper.
+
+In conclusion, though there is a major difference between the estimates (nearly threefold), the estimates themselves are very small and are not sufficient to determine the population genome differentiation of golden-wing and blue-wing warblers. Therefore, though we agree with the research paper about the warblers being quite similar, there is a difference in our analysis and estimate values. 
+
